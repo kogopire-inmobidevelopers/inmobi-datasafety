@@ -1,11 +1,162 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>Hello World</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Data Safety Practices</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 24px; }
+    h1 { margin-bottom: 8px; }
+    .muted { color: #555; margin-top: 0; }
+    .error { color: #b00020; white-space: pre-wrap; }
+    table { border-collapse: collapse; width: 100%; margin-top: 16px; }
+    th, td { border: 1px solid #ddd; padding: 8px; vertical-align: top; }
+    th { background: #f5f5f5; text-align: left; position: sticky; top: 0; }
+    tr:nth-child(even) { background: #fafafa; }
+    .wrap { max-width: 1100px; }
+  </style>
 </head>
 <body>
-  <h1>Hello World</h1>
-  <p>This page is served using GitHub Pages.</p>
+  <div class="wrap">
+    <h1>Data Safety Practices</h1>
+    <p class="muted">This page renders our data safety guidance from a CSV file.</p>
+
+    <div id="status">Loading…</div>
+    <div id="error" class="error"></div>
+
+    <table id="table" aria-label="CSV Table" hidden>
+      <thead></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <script>
+    // ✅ Change this if your CSV filename/path is different
+    const CSV_URL = "https://supply.inmobicdn.net/sdk/extshare/sdk_data_safety_report.csv";
+
+    function parseCSV(text) {
+      // Simple CSV parser that supports quoted fields and commas/newlines inside quotes.
+      const rows = [];
+      let row = [];
+      let field = "";
+      let i = 0;
+      let inQuotes = false;
+
+      while (i < text.length) {
+        const c = text[i];
+
+        if (inQuotes) {
+          if (c === '"') {
+            // Escaped quote
+            if (text[i + 1] === '"') {
+              field += '"';
+              i += 2;
+              continue;
+            }
+            inQuotes = false;
+            i++;
+            continue;
+          }
+          field += c;
+          i++;
+          continue;
+        }
+
+        if (c === '"') {
+          inQuotes = true;
+          i++;
+          continue;
+        }
+
+        if (c === ",") {
+          row.push(field);
+          field = "";
+          i++;
+          continue;
+        }
+
+        if (c === "\r") {
+          // ignore \r
+          i++;
+          continue;
+        }
+
+        if (c === "\n") {
+          row.push(field);
+          rows.push(row);
+          row = [];
+          field = "";
+          i++;
+          continue;
+        }
+
+        field += c;
+        i++;
+      }
+
+      // Add last field/row if needed
+      if (field.length > 0 || row.length > 0) {
+        row.push(field);
+        rows.push(row);
+      }
+
+      // Trim trailing empty rows
+      while (rows.length && rows[rows.length - 1].every(v => v === "")) {
+        rows.pop();
+      }
+
+      return rows;
+    }
+
+    function escapeHtml(s) {
+      return (s ?? "").toString()
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+
+    async function loadAndRender() {
+      const statusEl = document.getElementById("status");
+      const errorEl = document.getElementById("error");
+      const tableEl = document.getElementById("table");
+      const thead = tableEl.querySelector("thead");
+      const tbody = tableEl.querySelector("tbody");
+
+      try {
+        const res = await fetch(CSV_URL, { cache: "no-store" });
+        if (!res.ok) throw new Error(`Failed to fetch CSV: ${res.status} ${res.statusText}`);
+        const csvText = await res.text();
+
+        const rows = parseCSV(csvText);
+        if (!rows.length) throw new Error("CSV is empty.");
+
+        const headers = rows[0];
+        const dataRows = rows.slice(1);
+
+        // Build header
+        thead.innerHTML = "<tr>" + headers.map(h => `<th>${escapeHtml(h)}</th>`).join("") + "</tr>";
+
+        // Build body
+        tbody.innerHTML = dataRows.map(r => {
+          // pad short rows
+          const padded = r.concat(Array(Math.max(0, headers.length - r.length)).fill(""));
+          return "<tr>" + padded.slice(0, headers.length).map(v => `<td>${escapeHtml(v)}</td>`).join("") + "</tr>";
+        }).join("");
+
+        statusEl.textContent = `Loaded ${dataRows.length} rows from ${CSV_URL}`;
+        errorEl.textContent = "";
+        tableEl.hidden = false;
+
+      } catch (err) {
+        tableEl.hidden = true;
+        statusEl.textContent = "Could not load CSV.";
+        errorEl.textContent = String(err);
+      }
+    }
+
+    loadAndRender();
+  </script>
 </body>
 </html>
